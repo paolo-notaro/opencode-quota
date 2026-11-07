@@ -360,6 +360,41 @@ describe("queryCopilotQuota", () => {
     expect(formatCopilotQuota(result)).toBe("Copilot Unlimited");
   });
 
+  it("parses Copilot Free tier response shape (monthly_quotas + limited_user_quotas)", async () => {
+    authMocks.readAuthFile.mockResolvedValueOnce({
+      "github-copilot": { type: "oauth", access: "oauth_access_token", refresh: "refresh" },
+    });
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            monthly_quotas: { chat: 500, completions: 4000 },
+            limited_user_quotas: { chat: 370, completions: 3922 },
+            limited_user_reset_date: "2026-05-26",
+            login: "free-user",
+          }),
+          { status: 200 },
+        ),
+      ) as any,
+    );
+
+    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
+    const result = await queryCopilotQuota();
+
+    // total should default to monthly_quotas.chat (500), remaining is limited_user_quotas.chat (370)
+    // used = total - remaining = 130
+    expect(result).toEqual({
+      success: true,
+      mode: "user_quota",
+      used: 130,
+      total: 500,
+      percentRemaining: 74,
+      resetTimeIso: "2026-05-26T00:00:00.000Z",
+    });
+  });
+
   it("returns a clear error when OAuth auth exists without an access token", async () => {
     authMocks.readAuthFile.mockResolvedValueOnce({
       "github-copilot": { type: "oauth", refresh: "refresh_only" },
